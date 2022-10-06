@@ -4,7 +4,6 @@
 #include <unistd.h>
 #include <csignal>
 #include <cstring>
-#include <ctime>
 #include <sys/time.h>
 
 enum {
@@ -48,7 +47,7 @@ void alarm_interupt(int t_sig) {
 }
 
 int main() {
-    const int MAX_ROTATE_TIME = 10 * 3; // 5 seconds
+    const int MAX_ROTATE_TIME = 10 * 5; // 5 seconds
     char parts[] = {'-', '/', '|', '\\'};
     int n = 1;
     while (n <= MAX_ROTATE_TIME) {
