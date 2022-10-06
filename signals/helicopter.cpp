@@ -50,13 +50,14 @@ int main() {
     const int MAX_ROTATE_TIME = 10 * 5; // 5 seconds
     char parts[] = {'-', '/', '|', '\\'};
     int n = 1;
+    printf("Rotating with fflush!\n");
     while (n <= MAX_ROTATE_TIME) {
         printf("%c \r", parts[n++ % 4]);
         fflush(stdout);
         usleep(100000);
     }
     n = 0;
-    printf("Now rotating without FFLUSH!\n");
+    printf("Rotating WITHOUT FFLUSH!\n");
     setvbuf(stdout, nullptr, _IONBF, 0);
     while (n <= MAX_ROTATE_TIME) {
         printf("%c \r", parts[n++ % 4]);

@@ -49,6 +49,9 @@ int main() {
             // consume newline
             getchar();
         }
+        for (i = 0; i < children; ++i) {
+            kill(child_pids[i], SIGKILL);
+        }
         while (wait(&child_status) > 0);
     }
 

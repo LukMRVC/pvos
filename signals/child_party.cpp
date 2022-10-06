@@ -55,7 +55,7 @@ void siging_handler(int t_sig) {
     static int signals_caught = 0;
     signals_caught++;
     int child_status;
-    while (wait(&child_status) > 0) {
+    while (waitpid(-1, &child_status, WNOHANG) > 0) {
         running_childs--;
         collected++;
     }
@@ -70,7 +70,7 @@ int main() {
 
     struct sigaction l_sa;
     l_sa.sa_handler = siging_handler;
-    l_sa.sa_flags = 0; // SA_RESTART
+    l_sa.sa_flags = SA_RESTART;
     sigemptyset(&l_sa.sa_mask);
 
     sigaction(SIGCHLD, &l_sa, nullptr);
@@ -85,7 +85,7 @@ int main() {
             do_random_exit(sleep_time + rand() % 2000);
             return 0;
         }
-        usleep(100000);
+        usleep(10000);
         if (created % 10 == 0) {
             printf("Created %d processes, currently running %d\n", created, running_childs);
         }
