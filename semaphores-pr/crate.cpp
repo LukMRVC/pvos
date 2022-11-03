@@ -52,7 +52,7 @@ int main(int argc, char *argv[]) {
 
     sem_t* semptr = (sem_t * ) mmap(nullptr, sizeof (sem_t) * 3, PROT_WRITE, MAP_SHARED, semfd, 0);
     // initialize consumer semaphore
-    sem_init(semptr, 1, capacity);
+    sem_init(semptr, 1, 0);
     // initialize producers binary semaphore
     sem_init(semptr + sizeof (sem_t), 1, 1);
     // initialize producers capacity semaphore

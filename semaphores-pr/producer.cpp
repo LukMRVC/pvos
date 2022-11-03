@@ -7,6 +7,8 @@
 #include <ctime>
 #include <cstdlib>
 #define MAX_CRATE_ITEM_SIZE 20
+#define MIN(a, b) a < b ? a : b
+
 
 struct crate {
     uint capacity;
@@ -14,14 +16,21 @@ struct crate {
     char *data[MAX_CRATE_ITEM_SIZE];
 };
 
-int main() {
-    const char * items[5] = {"one", "two", "three", "four", "five"};
+int main(int argc, char *argv[]) {
+    if (argc <= 1) {
+        fprintf(stderr, "Start with mode [producer|consumer]");
+        return 1;
+    }
+    const char * items[9] = {"one", "two", "three", "four", "five", "six", "seven", "eight", "nine"};
     srand(time(nullptr));
     int shmfd = shm_open("/crate", O_RDWR, 0600);
     if (shmfd < 0) {
         perror("shm_open shmfd");
         return -1;
     }
+
+    bool is_producer = strcmp(argv[1], "producer") == 0;
+
     uint crate_struct_len = sizeof (uint) * 2;
     crate * crate_ptr = (crate * ) mmap(nullptr, crate_struct_len, PROT_WRITE, MAP_SHARED, shmfd, 0);
 
@@ -42,23 +51,41 @@ int main() {
     // now do the producing!!
     int sleep_time = rand() % 2 + 1;
     char buf[128];
-    while (true) {
-        // wait to unlock producing
-        sem_wait(producer_sem);
-        // wait to get memory access
-        sem_wait(memsem_ptr);
-        printf("Producer %d producing!\n", getpid());
-        auto written = sprintf(buf, "(%d) %s,", getpid(), items[crate_ptr->state]);
-        std::memcpy(crate_ptr->data + crate_ptr->state * MAX_CRATE_ITEM_SIZE, buf, written);
-        crate_ptr->state += 1;
-        if (crate_ptr->state == crate_ptr->capacity - 1) {
-            // unlock consumer
-            sem_post(semptr);
+    if (is_producer) {
+        printf("Producer sleep time: %ds\n", sleep_time);
+        while (true) {
+            // wait to unlock producing
+            sem_wait(producer_sem);
+            // wait to get memory access
+            sem_wait(memsem_ptr);
+            printf("Producer %d producing!\n", getpid());
+            auto written = sprintf(buf, "(%d) %s", getpid(), items[crate_ptr->state]);
+            std::memcpy(crate_ptr->data + crate_ptr->state * MAX_CRATE_ITEM_SIZE, buf, MIN(written, MAX_CRATE_ITEM_SIZE));
+            crate_ptr->state += 1;
+            if (crate_ptr->state == crate_ptr->capacity) {
+                // unlock consumer
+                sem_post(semptr);
+            }
+            // unlock memory access
+            sem_post(memsem_ptr);
+            sleep(sleep_time);
         }
-        // unlock memory access
-        sem_post(memsem_ptr);
-        sleep(sleep_time);
+    } else {
+        while (true) {
+            sem_wait(semptr);
+            sem_wait(memsem_ptr);
+            printf("Consuming crate data!\n\n");
+            for (uint i = 0; i < crate_ptr->capacity; ++i) {
+                std::memcpy(buf, crate_ptr->data + i * MAX_CRATE_ITEM_SIZE, MAX_CRATE_ITEM_SIZE);
+                printf("Data: %s\n", buf);
+                // increase producer semaphore to maximum capacity
+                sem_post(producer_sem);
+            }
+            crate_ptr->state = 0;
+            sem_post(memsem_ptr);
+        }
     }
+
 
     return 0;
 }
