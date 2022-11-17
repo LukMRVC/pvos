@@ -3,21 +3,21 @@
 #include <cstdlib>
 #include <fcntl.h>
 #include <sys/stat.h>
-#include <mqueue.h>
+#include <sys/msg.h>
 #include <cerrno>
 #include <cstring>
 
 #define MAX_MSG_SIZE 30
 
-mqd_t open_create_queue(const char *name, int oflag, mode_t mode, struct mq_attr *attr) {
-    mqd_t desc;
+int open_create_queue(key_t key, int msgflag) {
+    int ident;
 // open the queue
-    desc = mq_open(name, oflag, mode, attr);
+    ident = msgget(key, msgflag);
     // create queue if not exists
-    if (desc < 0 && errno == ENOENT) {
-        desc = mq_open(name, oflag | O_CREAT, mode, attr);
+    if (ident < 0 && errno == ENOENT) {
+        ident = msgget(key, msgflag | IPC_CREAT);
     }
-    return desc;
+    return ident;
 }
 
 
@@ -30,34 +30,29 @@ int main(int argc, char *argv[]) {
     bool is_producer = strcmp(argv[1], "producer") == 0;
     int capacity = 5;
     const char *items[8] = {"jedna", "dva", "tri", "ctyri", "pet", "sest", "sedm", "osm"};
-    struct mq_attr init_attrs;
-    init_attrs.mq_maxmsg = capacity;
-    init_attrs.mq_msgsize = MAX_MSG_SIZE;
-    init_attrs.mq_curmsgs = 0;
-    init_attrs.mq_flags = 0;
-    int qflags = O_RDWR;
+
+    int qflags = 0600;
     if (argc == 3 && strcmp(argv[2], "init") == 0) {
         qflags |= O_TRUNC;
     }
-    mqd_t crate = open_create_queue("/msgqueue", qflags, 0600, nullptr);
-    mqd_t producers;
-    mqd_t consumer;
-    producers = open_create_queue("/msgqproducer", qflags, 0600, nullptr);
-    consumer = open_create_queue("/msgqconsumer", qflags, 0600, nullptr);
-
-    mq_attr qattr;
-    mq_getattr(crate, &qattr);
-    printf("%ld\n", qattr.mq_msgsize);
-    char msgbuf[qattr.mq_msgsize];
-    unsigned int msgprio = 1;
+    int qcrate = open_create_queue(0xcafe, qflags);
+    unsigned int consumer_type = 1;
+    unsigned int producer_type = 2;
+    unsigned int load_type = 3;
     int curidx;
+
+    struct message {
+        long type;
+        char text[MAX_MSG_SIZE];
+    } msg{};
 
     if (argc == 3) {
         if (strcmp(argv[2], "init") == 0) {
             printf("Sending initial message\n");
-            sprintf(msgbuf, "%d %d", (int)capacity, 0);
+            msg.type = producer_type;
+            sprintf(msg.text, "%d %d", (int) capacity, 0);
             // send initial message that is between producers only
-            mq_send(producers, msgbuf, sizeof(msgbuf), msgprio);
+            msgsnd(qcrate, (void *)&msg, sizeof (msg.text), 0);
         }
     }
 
@@ -65,56 +60,62 @@ int main(int argc, char *argv[]) {
     // another queue is for producers - consumers to know when consumer should awaken
     // last queue is the crate itself, where the data is stored
 
-
     if (is_producer) {
         const int sleep_time = 2;
         while (true) {
             printf("waiting for producers message\n");
-            int received = mq_receive(producers, msgbuf, sizeof(msgbuf), &msgprio);
+            ssize_t received = msgrcv(qcrate, (void *)&msg, sizeof(msg.text), producer_type, 0);
             if (received < 0) {
-                perror("mq_receive");
+                perror("msgrcv");
                 return -1;
             }
-            sscanf(msgbuf, "%d %d", &capacity, &curidx);
+            sscanf(msg.text, "%d %d", &capacity, &curidx);
             printf("Read from producers queue: %d %d\n", capacity, curidx);
-            sprintf(msgbuf, "(%d): %s", getpid(), items[curidx++]);
-            printf("writing to crate: %s\n", msgbuf);
-            int s = mq_send(crate, msgbuf, sizeof(msgbuf), msgprio);
+            sprintf(msg.text, "(%d): %s", getpid(), items[curidx++]);
+            printf("writing to crate: %s\n", msg.text);
+//            int s = mq_send(crate, msgbuf, sizeof(msgbuf), msgprio);
+            // send message to crate
+            msg.type = load_type;
+            int s = msgsnd(qcrate, (void *)&msg, sizeof (msg.text), 0);
             if (s < 0) {
                 perror("mq_send");
                 return -1;
             }
             if (curidx == capacity) {
-                sprintf(msgbuf, "%d", capacity);
+                msg.type = consumer_type;
+                sprintf(msg.text, "%d", capacity);
                 // send msq to consumer
                 printf("Sending data to consumer!\n");
-                mq_send(consumer, msgbuf, sizeof(msgbuf), 1);
+                msgsnd(qcrate, (void *)&msg, sizeof (msg.text), 0);
             } else {
-                sprintf(msgbuf, "%d %d", capacity, curidx);
-                mq_send(producers, msgbuf, sizeof(msgbuf), 1);
+                msg.type = producer_type;
+                sprintf(msg.text, "%d %d", capacity, curidx);
+                msgsnd(qcrate, (void *)&msg, sizeof (msg.text), 0);
             }
             sleep(sleep_time);
         }
     } else {
         while (true) {
             printf("Receiving data from consumer queue\n");
-            int received = mq_receive(consumer, msgbuf, sizeof (msgbuf), &msgprio);
+            ssize_t received = msgrcv(qcrate, (void *)&msg, sizeof(msg.text), consumer_type, 0);
             if (received < 0) {
-                perror("mq_receive");
+                perror("msgrcv");
                 return -1;
             }
-            sscanf(msgbuf, "%d", &capacity);
+            sscanf(msg.text, "%d", &capacity);
             printf("Received: %d, reading crate\n", capacity);
             for (int i = 0; i < capacity; ++i) {
-                mq_receive(crate, msgbuf, sizeof (msgbuf), &msgprio);
-                printf("%s\n", msgbuf);
+                msgrcv(qcrate, (void *)&msg, sizeof(msg.text), load_type, 0);
+                printf("%s\n", msg.text);
             }
             printf("Sending to producers\n");
-            sprintf(msgbuf, "%d %d", capacity, 0);
-            mq_send(producers, msgbuf, sizeof (msgbuf), 1);
+            msg.type = producer_type;
+            sprintf(msg.text, "%d %d", capacity, 0);
+            msgsnd(qcrate, (void *)&msg, sizeof (msg.text), 0);
         }
     }
-
-
     return 0;
 }
+//
+// Created by lukas on 10.11.22.
+//
