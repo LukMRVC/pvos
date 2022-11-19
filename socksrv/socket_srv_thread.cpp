@@ -271,7 +271,6 @@ void *client_comm(void *client_sock) {
             int l_len = read(sockfd, l_buf, sizeof(l_buf));
             if (!l_len) {
                 log_msg(LOG_DEBUG, "Client closed socket!");
-                close(sockfd);
                 break;
             } else if (l_len < 0) {
                 log_msg(LOG_DEBUG, "Unable to read data from client.");
@@ -283,8 +282,6 @@ void *client_comm(void *client_sock) {
             // close request?
             if (!strncasecmp(l_buf, "close", strlen(STR_CLOSE))) {
                 log_msg(LOG_INFO, "Client sent 'close' request to close connection.");
-                close(sockfd);
-                log_msg(LOG_INFO, "Connection closed. Waiting for new client.");
                 break;
             }
 
@@ -312,8 +309,8 @@ void *client_comm(void *client_sock) {
         }
         // request for quit
         if (!strncasecmp(l_buf, "quit", strlen(STR_QUIT))) {
-            close(sockfd);
             log_msg(LOG_INFO, "Request to 'quit' entered");
+            close(sockfd);
             exit(0);
         }
     } // while communication
